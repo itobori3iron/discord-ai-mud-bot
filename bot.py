@@ -6,9 +6,16 @@ import re
 from discord.ext import commands
 from dotenv import load_dotenv
 
+# Load .env file
 load_dotenv()
+
 DISCORD_TOKEN = os.getenv('DISCORD_TOKEN')
 OPENROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY')
+
+# Debug: Check tokens loaded correctly
+print("🔧 Starting bot.py...")
+print(f"DISCORD_TOKEN present: {bool(DISCORD_TOKEN)}")
+print(f"OPENROUTER_API_KEY present: {bool(OPENROUTER_API_KEY)}")
 
 if not DISCORD_TOKEN or not OPENROUTER_API_KEY:
     raise ValueError("❌ Missing DISCORD_TOKEN or OPENROUTER_API_KEY.")
@@ -49,7 +56,6 @@ def get_display_name(user):
 def extract_intent(text):
     lowered = text.lower()
 
-    # Safely match name-setting phrases
     try:
         name_match = re.search(r"(call me|my name is|i go by)\s+(.*)", lowered)
         if name_match:
