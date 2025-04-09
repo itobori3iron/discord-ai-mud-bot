@@ -21,7 +21,7 @@ if not DISCORD_TOKEN or not OPENROUTER_API_KEY:
     raise ValueError("❌ Missing DISCORD_TOKEN or OPENROUTER_API_KEY.")
 
 PLAYER_NAMES_PATH = '/data/player_names.json'
-MODEL = "mistralai/mixtral-8x7b-instruct"
+MODEL = "openchat/openchat-3.5"
 MAX_TOKENS = 1024
 
 def load_player_names():
