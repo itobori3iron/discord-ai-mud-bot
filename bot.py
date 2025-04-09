@@ -49,16 +49,19 @@ def get_display_name(user):
 def extract_intent(text):
     lowered = text.lower()
 
-    # Set name (natural language patterns)
-    name_match = re.search(r"(call me|my name is|i go by)\s+(.*)", lowered)
-    if name_match:
-        return 'setname', name_match.group(2).strip()
+    # Safely match name-setting phrases
+    try:
+        name_match = re.search(r"(call me|my name is|i go by)\s+(.*)", lowered)
+        if name_match:
+            name = name_match.group(2).strip()
+            if name:
+                return 'setname', name
+    except Exception as e:
+        print(f"Intent detection failed: {str(e)}")
 
-    # Voting pattern (stub)
     if "should we" in lowered or "let's vote" in lowered:
         return 'vote', text
 
-    # Everything else = action
     return 'action', text
 
 async def generate_story(prompt):
