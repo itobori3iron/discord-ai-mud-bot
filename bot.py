@@ -13,7 +13,7 @@ if not DISCORD_TOKEN or not OPENROUTER_API_KEY:
     raise ValueError("Both DISCORD_TOKEN and OPENROUTER_API_KEY must be set.")
 
 PLAYER_NAMES_PATH = '/data/player_names.json'
-MODEL = "nvidia/llama-3.3-nemotron-super-49b-v1:free"
+MODEL = "gryphe/mythomax-l2-13b:free"
 
 def load_player_names():
     try:
