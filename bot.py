@@ -5,13 +5,13 @@ import json
 from discord.ext import commands
 from dotenv import load_dotenv
 
-# Load secrets from .env or Render environment variables
+# Load environment variables
 load_dotenv()
 DISCORD_TOKEN = os.getenv('DISCORD_TOKEN')
 OPENROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY')
 
 if not DISCORD_TOKEN or not OPENROUTER_API_KEY:
-    raise ValueError("❌ Missing DISCORD_TOKEN or OPENROUTER_API_KEY. Check your .env or environment variables.")
+    raise ValueError("❌ Missing DISCORD_TOKEN or OPENROUTER_API_KEY.")
 
 PLAYER_NAMES_PATH = '/data/player_names.json'
 
@@ -29,7 +29,7 @@ def save_player_names(data):
 
 player_names = load_player_names()
 
-# Enable required Discord intents
+# Intents for reading message content
 intents = discord.Intents.default()
 intents.messages = True
 intents.message_content = True
@@ -52,7 +52,7 @@ async def generate_story(prompt):
         "Content-Type": "application/json"
     }
     data = {
-        "model": "openai/gpt-4-turbo",
+        "model": "deepseek/deepseek-chat-v3-0324:free",
         "messages": [{"role": "user", "content": prompt}],
         "max_tokens": 250
     }
