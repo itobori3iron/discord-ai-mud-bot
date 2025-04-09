@@ -5,7 +5,7 @@ import json
 from discord.ext import commands
 from dotenv import load_dotenv
 
-# Load environment variables
+# Load secrets
 load_dotenv()
 DISCORD_TOKEN = os.getenv('DISCORD_TOKEN')
 OPENROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY')
@@ -29,7 +29,7 @@ def save_player_names(data):
 
 player_names = load_player_names()
 
-# Intents for reading message content
+# Enable required Discord intents
 intents = discord.Intents.default()
 intents.messages = True
 intents.message_content = True
@@ -42,6 +42,8 @@ GAME_STATE = {
     'events': []
 }
 
+MODEL = "deepseek/deepseek-chat-v3-0324:free"  # Set your preferred model here
+
 def get_display_name(user):
     return player_names.get(str(user.id), user.name)
 
@@ -52,33 +54,31 @@ async def generate_story(prompt):
         "Content-Type": "application/json"
     }
     data = {
-        "model": "deepseek/deepseek-chat-v3-0324:free",
+        "model": MODEL,
         "messages": [{"role": "user", "content": prompt}],
         "max_tokens": 250
     }
 
-    print("📤 Prompt sent to OpenRouter:", prompt)
+    print(f"📤 Sending prompt to OpenRouter ({MODEL}): {prompt}")
 
     async with aiohttp.ClientSession() as session:
         async with session.post(url, json=data, headers=headers) as resp:
             try:
                 response_json = await resp.json()
             except Exception as e:
-                print("❌ Failed to parse OpenRouter response:", e)
-                return None, f"Failed to read response from OpenRouter."
+                return None, f"❌ Failed to parse response: {str(e)}"
 
-            print("📥 Raw OpenRouter response:", response_json)
+            print("📥 OpenRouter response:", response_json)
 
-            if "choices" not in response_json:
-                error_msg = response_json.get("error", {}).get("message", "No 'choices' in response.")
-                return None, f"OpenRouter returned an error: {error_msg}"
+            if "choices" in response_json:
+                try:
+                    content = response_json['choices'][0]['message']['content']
+                    return content.strip(), None
+                except Exception as e:
+                    return None, f"❌ Unexpected format: {str(e)}"
 
-            try:
-                content = response_json['choices'][0]['message']['content']
-                return content, None
-            except Exception as e:
-                print("❌ Unexpected structure in OpenRouter response:", e)
-                return None, f"OpenRouter gave an unreadable response."
+            error_msg = response_json.get("error", {}).get("message", "Unknown error.")
+            return None, f"❌ OpenRouter error: {error_msg}"
 
 @bot.command(name='setname')
 async def set_display_name(ctx, *, custom_name: str):
@@ -96,21 +96,20 @@ async def on_message(message):
     if message.author == bot.user:
         return
 
-    print(f"🗨️ Received message: {message.content} from {message.author.name}")
+    print(f"🗨️ Message from {message.author.name}: {message.content}")
 
     if message.content.startswith('>'):
         action = message.content[1:].strip()
         name = get_display_name(message.author)
         prompt = f"In {GAME_STATE['setting']}, {name} does: \"{action}\". Continue the story."
 
-        response, error = await generate_story(prompt)
+        story, error = await generate_story(prompt)
 
-        if error:
+        if story:
+            GAME_STATE['events'].append({'player': name, 'action': action, 'outcome': story})
+            await message.channel.send(f"**{name}**: {action}\n{story}")
+        else:
             await message.channel.send(f"❌ Could not generate response:\n```{error}```")
-            return
-
-        GAME_STATE['events'].append({'player': name, 'action': action, 'outcome': response})
-        await message.channel.send(f"**{name}**: {action}\n{response}")
 
     elif message.content.startswith('!summary'):
         recent = GAME_STATE['events'][-3:]
@@ -121,6 +120,6 @@ async def on_message(message):
 
 @bot.event
 async def on_ready():
-    print(f"✅ Bot is ready. Logged in as {bot.user} (ID: {bot.user.id})")
+    print(f"✅ Bot is online as {bot.user} (ID: {bot.user.id})")
 
 bot.run(DISCORD_TOKEN)
