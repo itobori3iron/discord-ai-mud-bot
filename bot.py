@@ -15,7 +15,7 @@ if not DISCORD_TOKEN or not OPENROUTER_API_KEY:
     raise ValueError("Missing DISCORD_TOKEN or OPENROUTER_API_KEY. Please set these in your environment.")
 
 # Model config
-MODEL = "nvidia/llama-3.3-nemotron-super-49b-v1:free"
+MODEL = "deepseek/deepseek-chat-v3-0324:free"
 PLAYER_NAMES_PATH = "/data/player_names.json"
 
 # Load player names
