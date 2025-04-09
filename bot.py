@@ -5,12 +5,13 @@ import json
 from discord.ext import commands
 from dotenv import load_dotenv
 
+# Load secrets from .env or Render environment variables
 load_dotenv()
 DISCORD_TOKEN = os.getenv('DISCORD_TOKEN')
 OPENROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY')
 
-if not DISCORD_TOKEN:
-    raise ValueError("Missing DISCORD_TOKEN. Set it in .env or Render environment variables.")
+if not DISCORD_TOKEN or not OPENROUTER_API_KEY:
+    raise ValueError("❌ Missing DISCORD_TOKEN or OPENROUTER_API_KEY. Check your .env or environment variables.")
 
 PLAYER_NAMES_PATH = '/data/player_names.json'
 
@@ -28,6 +29,7 @@ def save_player_names(data):
 
 player_names = load_player_names()
 
+# Enable required Discord intents
 intents = discord.Intents.default()
 intents.messages = True
 intents.message_content = True
@@ -59,9 +61,24 @@ async def generate_story(prompt):
 
     async with aiohttp.ClientSession() as session:
         async with session.post(url, json=data, headers=headers) as resp:
-            response_json = await resp.json()
-            print("📥 Response from OpenRouter:", response_json)
-            return response_json['choices'][0]['message']['content']
+            try:
+                response_json = await resp.json()
+            except Exception as e:
+                print("❌ Failed to parse OpenRouter response:", e)
+                return None, f"Failed to read response from OpenRouter."
+
+            print("📥 Raw OpenRouter response:", response_json)
+
+            if "choices" not in response_json:
+                error_msg = response_json.get("error", {}).get("message", "No 'choices' in response.")
+                return None, f"OpenRouter returned an error: {error_msg}"
+
+            try:
+                content = response_json['choices'][0]['message']['content']
+                return content, None
+            except Exception as e:
+                print("❌ Unexpected structure in OpenRouter response:", e)
+                return None, f"OpenRouter gave an unreadable response."
 
 @bot.command(name='setname')
 async def set_display_name(ctx, *, custom_name: str):
@@ -72,7 +89,7 @@ async def set_display_name(ctx, *, custom_name: str):
 
 @bot.command(name='helpme')
 async def help_command(ctx):
-    await ctx.send("Commands:\n> your action\n!setname YourName\n!summary")
+    await ctx.send("🛠️ Commands:\n> your action\n!setname YourName\n!summary")
 
 @bot.event
 async def on_message(message):
@@ -86,19 +103,24 @@ async def on_message(message):
         name = get_display_name(message.author)
         prompt = f"In {GAME_STATE['setting']}, {name} does: \"{action}\". Continue the story."
 
-        try:
-            response = await generate_story(prompt)
-            GAME_STATE['events'].append({'player': name, 'action': action, 'outcome': response})
-            await message.channel.send(f"**{name}**: {action}\n{response}")
-        except Exception as e:
-            print("❌ Error while generating story:", e)
-            await message.channel.send(f"❌ Something went wrong:\n```{str(e)}```")
+        response, error = await generate_story(prompt)
+
+        if error:
+            await message.channel.send(f"❌ Could not generate response:\n```{error}```")
+            return
+
+        GAME_STATE['events'].append({'player': name, 'action': action, 'outcome': response})
+        await message.channel.send(f"**{name}**: {action}\n{response}")
 
     elif message.content.startswith('!summary'):
         recent = GAME_STATE['events'][-3:]
         summary = "\n".join([f"- **{e['player']}**: {e['outcome']}" for e in recent]) or "No events yet."
-        await message.channel.send(f"Recent story events:\n{summary}")
+        await message.channel.send(f"📜 Recent story events:\n{summary}")
 
     await bot.process_commands(message)
+
+@bot.event
+async def on_ready():
+    print(f"✅ Bot is ready. Logged in as {bot.user} (ID: {bot.user.id})")
 
 bot.run(DISCORD_TOKEN)
