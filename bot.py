@@ -6,11 +6,12 @@ from discord.ext import commands
 from dotenv import load_dotenv
 
 load_dotenv()
-
 DISCORD_TOKEN = os.getenv('DISCORD_TOKEN')
 OPENROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY')
 
-# Load or initialize player names
+if not DISCORD_TOKEN:
+    raise ValueError("Missing DISCORD_TOKEN. Set it in .env or Render environment variables.")
+
 PLAYER_NAMES_PATH = '/data/player_names.json'
 
 def load_player_names():
@@ -21,6 +22,7 @@ def load_player_names():
         return {}
 
 def save_player_names(data):
+    os.makedirs(os.path.dirname(PLAYER_NAMES_PATH), exist_ok=True)
     with open(PLAYER_NAMES_PATH, 'w') as f:
         json.dump(data, f, indent=4)
 
@@ -33,17 +35,14 @@ intents.message_content = True
 bot = commands.Bot(command_prefix='!', intents=intents)
 bot.remove_command("help")
 
-# Game state
 GAME_STATE = {
     'setting': 'a mysterious ancient city',
     'events': []
 }
 
-# Function to get display name
 def get_display_name(user):
     return player_names.get(str(user.id), user.name)
 
-# OpenRouter AI call
 async def generate_story(prompt):
     url = "https://openrouter.ai/api/v1/chat/completions"
     headers = {
@@ -60,50 +59,33 @@ async def generate_story(prompt):
             response_json = await resp.json()
             return response_json['choices'][0]['message']['content']
 
-# Command to set custom display name
 @bot.command(name='setname')
 async def set_display_name(ctx, *, custom_name: str):
     player_names[str(ctx.author.id)] = custom_name
     save_player_names(player_names)
-    await ctx.send(f"✅ Your display name has been set to: `{custom_name}`")
+    await ctx.send(f"✅ Display name set to: `{custom_name}`")
 
-# Optional help command
 @bot.command(name='helpme')
 async def help_command(ctx):
-    await ctx.send("Here are some commands you can use:\n- !setname YourName\n- !summary\n- > [your action]")
+    await ctx.send("Commands:\n> your action\n!setname YourName\n!summary")
 
-# Event handling for player actions
 @bot.event
 async def on_message(message):
     if message.author == bot.user:
         return
 
     if message.content.startswith('>'):
-        player_action = message.content[1:].strip()
-        display_name = get_display_name(message.author)
-        prompt = f"""
-        You are the host of a multiplayer story game set in {GAME_STATE['setting']}.
-        The player {display_name} performs the action: \"{player_action}\".
-
-        Continue the story in 2-3 sentences, using rich narration and natural consequences.
-        """
+        action = message.content[1:].strip()
+        name = get_display_name(message.author)
+        prompt = f"In {GAME_STATE['setting']}, {name} does: \"{action}\". Continue the story."
         response = await generate_story(prompt)
-
-        GAME_STATE['events'].append({
-            'player': display_name,
-            'action': player_action,
-            'outcome': response
-        })
-
-        await message.channel.send(f"**{display_name}'s action:** {player_action}\n\n{response}")
+        GAME_STATE['events'].append({'player': name, 'action': action, 'outcome': response})
+        await message.channel.send(f"**{name}**: {action}\n{response}")
 
     elif message.content.startswith('!summary'):
-        display_name = get_display_name(message.author)
-        recent = GAME_STATE['events'][-3:] if GAME_STATE['events'] else []
-        summary = "\n".join(
-            [f"- **{e['player']}** {e['action']}: {e['outcome']}" for e in recent]
-        ) or "No events yet."
-        await message.channel.send(f"**Recent Events for {display_name}:**\n{summary}")
+        recent = GAME_STATE['events'][-3:]
+        summary = "\n".join([f"- **{e['player']}**: {e['outcome']}" for e in recent]) or "No events yet."
+        await message.channel.send(f"Recent story events:\n{summary}")
 
     await bot.process_commands(message)
 
