@@ -141,3 +141,7 @@ async def show_summary(ctx):
     recent = GAME_STATE['events'][-3:]
     summary = "\n".join([f"- **{e['player']}**: {e['outcome']}" for e in recent]) or "No events yet."
     await ctx.send(f"📜 Recent story events:\n{summary}")
+
+# ⬇️ NEW DEBUG LINE
+print("🚀 Launching bot with bot.run()...")
+bot.run(DISCORD_TOKEN)
