@@ -2,10 +2,10 @@ import discord
 import os
 import aiohttp
 import json
+import re
 from discord.ext import commands
 from dotenv import load_dotenv
 
-# Load secrets
 load_dotenv()
 DISCORD_TOKEN = os.getenv('DISCORD_TOKEN')
 OPENROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY')
@@ -14,6 +14,8 @@ if not DISCORD_TOKEN or not OPENROUTER_API_KEY:
     raise ValueError("❌ Missing DISCORD_TOKEN or OPENROUTER_API_KEY.")
 
 PLAYER_NAMES_PATH = '/data/player_names.json'
+MODEL = "mistralai/mixtral-8x7b-instruct"
+MAX_TOKENS = 1024
 
 def load_player_names():
     try:
@@ -29,12 +31,11 @@ def save_player_names(data):
 
 player_names = load_player_names()
 
-# Enable required Discord intents
 intents = discord.Intents.default()
 intents.messages = True
 intents.message_content = True
 
-bot = commands.Bot(command_prefix='!', intents=intents)
+bot = commands.Bot(command_prefix="!", intents=intents)
 bot.remove_command("help")
 
 GAME_STATE = {
@@ -42,10 +43,23 @@ GAME_STATE = {
     'events': []
 }
 
-MODEL = "deepseek/deepseek-chat-v3-0324:free"  # Set your preferred model here
-
 def get_display_name(user):
     return player_names.get(str(user.id), user.name)
+
+def extract_intent(text):
+    lowered = text.lower()
+
+    # Set name (natural language patterns)
+    name_match = re.search(r"(call me|my name is|i go by)\s+(.*)", lowered)
+    if name_match:
+        return 'setname', name_match.group(2).strip()
+
+    # Voting pattern (stub)
+    if "should we" in lowered or "let's vote" in lowered:
+        return 'vote', text
+
+    # Everything else = action
+    return 'action', text
 
 async def generate_story(prompt):
     url = "https://openrouter.ai/api/v1/chat/completions"
@@ -56,70 +70,65 @@ async def generate_story(prompt):
     data = {
         "model": MODEL,
         "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": 250
+        "max_tokens": MAX_TOKENS,
+        "temperature": 0.9
     }
 
-    print(f"📤 Sending prompt to OpenRouter ({MODEL}): {prompt}")
+    print(f"📤 Sending to OpenRouter ({MODEL}): {prompt}")
 
     async with aiohttp.ClientSession() as session:
         async with session.post(url, json=data, headers=headers) as resp:
             try:
                 response_json = await resp.json()
+                print("📥 OpenRouter raw:", response_json)
             except Exception as e:
                 return None, f"❌ Failed to parse response: {str(e)}"
 
-            print("📥 OpenRouter response:", response_json)
-
             if "choices" in response_json:
                 try:
-                    content = response_json['choices'][0]['message']['content']
-                    return content.strip(), None
+                    return response_json['choices'][0]['message']['content'].strip(), None
                 except Exception as e:
-                    return None, f"❌ Unexpected format: {str(e)}"
+                    return None, f"❌ Format error: {str(e)}"
 
-            error_msg = response_json.get("error", {}).get("message", "Unknown error.")
-            return None, f"❌ OpenRouter error: {error_msg}"
+            return None, response_json.get("error", {}).get("message", "Unknown error.")
 
-@bot.command(name='setname')
-async def set_display_name(ctx, *, custom_name: str):
-    print(f"📛 {ctx.author.name} set their display name to: {custom_name}")
-    player_names[str(ctx.author.id)] = custom_name
-    save_player_names(player_names)
-    await ctx.send(f"✅ Display name set to: `{custom_name}`")
-
-@bot.command(name='helpme')
-async def help_command(ctx):
-    await ctx.send("🛠️ Commands:\n> your action\n!setname YourName\n!summary")
+@bot.event
+async def on_ready():
+    print(f"✅ Bot is ready. Logged in as {bot.user} (ID: {bot.user.id})")
 
 @bot.event
 async def on_message(message):
     if message.author == bot.user:
         return
 
-    print(f"🗨️ Message from {message.author.name}: {message.content}")
+    print(f"🗨️ From {message.author.name}: {message.content}")
+    intent, value = extract_intent(message.content)
 
-    if message.content.startswith('>'):
-        action = message.content[1:].strip()
+    if intent == "setname":
+        player_names[str(message.author.id)] = value
+        save_player_names(player_names)
+        await message.channel.send(f"✅ Got it! You’ll be known as `{value}` from now on.")
+        return
+
+    elif intent == "vote":
+        await message.channel.send("🗳️ Voting system coming soon. You suggested:\n" + value)
+        return
+
+    elif intent == "action":
         name = get_display_name(message.author)
-        prompt = f"In {GAME_STATE['setting']}, {name} does: \"{action}\". Continue the story."
+        prompt = f"In {GAME_STATE['setting']}, {name} does: \"{value}\". Continue the story."
 
         story, error = await generate_story(prompt)
-
         if story:
-            GAME_STATE['events'].append({'player': name, 'action': action, 'outcome': story})
-            await message.channel.send(f"**{name}**: {action}\n{story}")
+            GAME_STATE['events'].append({'player': name, 'action': value, 'outcome': story})
+            await message.channel.send(f"**{name}**: {value}\n{story}")
         else:
             await message.channel.send(f"❌ Could not generate response:\n```{error}```")
 
-    elif message.content.startswith('!summary'):
-        recent = GAME_STATE['events'][-3:]
-        summary = "\n".join([f"- **{e['player']}**: {e['outcome']}" for e in recent]) or "No events yet."
-        await message.channel.send(f"📜 Recent story events:\n{summary}")
-
     await bot.process_commands(message)
 
-@bot.event
-async def on_ready():
-    print(f"✅ Bot is online as {bot.user} (ID: {bot.user.id})")
-
-bot.run(DISCORD_TOKEN)
+@bot.command(name='summary')
+async def show_summary(ctx):
+    recent = GAME_STATE['events'][-3:]
+    summary = "\n".join([f"- **{e['player']}**: {e['outcome']}" for e in recent]) or "No events yet."
+    await ctx.send(f"📜 Recent story events:\n{summary}")
