@@ -60,9 +60,8 @@ async def generate_story(prompt):
     async with aiohttp.ClientSession() as session:
         async with session.post(url, json=data, headers=headers) as resp:
             response_json = await resp.json()
-            response_text = response_json['choices'][0]['message']['content']
-            print("📥 Response from OpenRouter:", response_text)
-            return response_text
+            print("📥 Response from OpenRouter:", response_json)
+            return response_json['choices'][0]['message']['content']
 
 @bot.command(name='setname')
 async def set_display_name(ctx, *, custom_name: str):
@@ -86,13 +85,14 @@ async def on_message(message):
         action = message.content[1:].strip()
         name = get_display_name(message.author)
         prompt = f"In {GAME_STATE['setting']}, {name} does: \"{action}\". Continue the story."
+
         try:
             response = await generate_story(prompt)
             GAME_STATE['events'].append({'player': name, 'action': action, 'outcome': response})
             await message.channel.send(f"**{name}**: {action}\n{response}")
         except Exception as e:
             print("❌ Error while generating story:", e)
-            await message.channel.send("Something went wrong trying to continue the story.")
+            await message.channel.send(f"❌ Something went wrong:\n```{str(e)}```")
 
     elif message.content.startswith('!summary'):
         recent = GAME_STATE['events'][-3:]
