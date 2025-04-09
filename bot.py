@@ -54,13 +54,19 @@ async def generate_story(prompt):
         "messages": [{"role": "user", "content": prompt}],
         "max_tokens": 250
     }
+
+    print("📤 Prompt sent to OpenRouter:", prompt)
+
     async with aiohttp.ClientSession() as session:
         async with session.post(url, json=data, headers=headers) as resp:
             response_json = await resp.json()
-            return response_json['choices'][0]['message']['content']
+            response_text = response_json['choices'][0]['message']['content']
+            print("📥 Response from OpenRouter:", response_text)
+            return response_text
 
 @bot.command(name='setname')
 async def set_display_name(ctx, *, custom_name: str):
+    print(f"📛 {ctx.author.name} set their display name to: {custom_name}")
     player_names[str(ctx.author.id)] = custom_name
     save_player_names(player_names)
     await ctx.send(f"✅ Display name set to: `{custom_name}`")
@@ -74,13 +80,19 @@ async def on_message(message):
     if message.author == bot.user:
         return
 
+    print(f"🗨️ Received message: {message.content} from {message.author.name}")
+
     if message.content.startswith('>'):
         action = message.content[1:].strip()
         name = get_display_name(message.author)
         prompt = f"In {GAME_STATE['setting']}, {name} does: \"{action}\". Continue the story."
-        response = await generate_story(prompt)
-        GAME_STATE['events'].append({'player': name, 'action': action, 'outcome': response})
-        await message.channel.send(f"**{name}**: {action}\n{response}")
+        try:
+            response = await generate_story(prompt)
+            GAME_STATE['events'].append({'player': name, 'action': action, 'outcome': response})
+            await message.channel.send(f"**{name}**: {action}\n{response}")
+        except Exception as e:
+            print("❌ Error while generating story:", e)
+            await message.channel.send("Something went wrong trying to continue the story.")
 
     elif message.content.startswith('!summary'):
         recent = GAME_STATE['events'][-3:]
