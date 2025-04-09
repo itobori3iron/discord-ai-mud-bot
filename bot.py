@@ -1,24 +1,18 @@
 import discord
 import os
-import json
 import aiohttp
+import json
 from discord.ext import commands
 from dotenv import load_dotenv
 
 load_dotenv()
 
-# Set up Discord intents for message reading
-intents = discord.Intents.default()
-intents.messages = True
-intents.message_content = True
+DISCORD_TOKEN = os.getenv('DISCORD_TOKEN')
+OPENROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY')
 
-# Initialize bot with '!' prefix
-bot = commands.Bot(command_prefix='!', intents=intents)
-
-# Path for storing player names
+# Load or initialize player names
 PLAYER_NAMES_PATH = '/data/player_names.json'
 
-# Load player names from JSON file
 def load_player_names():
     try:
         with open(PLAYER_NAMES_PATH, 'r') as f:
@@ -26,29 +20,34 @@ def load_player_names():
     except FileNotFoundError:
         return {}
 
-# Save player names to JSON file
 def save_player_names(data):
     with open(PLAYER_NAMES_PATH, 'w') as f:
         json.dump(data, f, indent=4)
 
 player_names = load_player_names()
 
-# Command to set a custom display name
-@bot.command(name='setname')
-async def set_display_name(ctx, *, custom_name: str):
-    player_names[str(ctx.author.id)] = custom_name
-    save_player_names(player_names)
-    await ctx.send(f"✅ Your display name has been set to {custom_name}")
+intents = discord.Intents.default()
+intents.messages = True
+intents.message_content = True
 
-# Get a user's display name (custom or default)
+bot = commands.Bot(command_prefix='!', intents=intents)
+bot.remove_command("help")
+
+# Game state
+GAME_STATE = {
+    'setting': 'a mysterious ancient city',
+    'events': []
+}
+
+# Function to get display name
 def get_display_name(user):
     return player_names.get(str(user.id), user.name)
 
-# Generate a story via OpenRouter API
+# OpenRouter AI call
 async def generate_story(prompt):
     url = "https://openrouter.ai/api/v1/chat/completions"
     headers = {
-        "Authorization": f"Bearer {os.getenv('OPENROUTER_API_KEY')}",
+        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
         "Content-Type": "application/json"
     }
     data = {
@@ -56,55 +55,56 @@ async def generate_story(prompt):
         "messages": [{"role": "user", "content": prompt}],
         "max_tokens": 250
     }
-
     async with aiohttp.ClientSession() as session:
         async with session.post(url, json=data, headers=headers) as resp:
             response_json = await resp.json()
             return response_json['choices'][0]['message']['content']
 
-# Command to show a summary of all player names
-@bot.command(name='summary')
-async def show_summary(ctx):
-    if not player_names:
-        await ctx.send("No players have set custom names yet!")
-        return
-    
-    summary = "\n".join(f"- <@{user_id}>: {name}" for user_id, name in player_names.items())
-    await ctx.send(f"Player Name Summary:\n{summary}")
+# Command to set custom display name
+@bot.command(name='setname')
+async def set_display_name(ctx, *, custom_name: str):
+    player_names[str(ctx.author.id)] = custom_name
+    save_player_names(player_names)
+    await ctx.send(f"✅ Your display name has been set to: `{custom_name}`")
 
-# Help command with cleaner instructions
-@bot.command(name='help')
-async def show_help(ctx):
-    help_text = (
-        "Welcome to the Story Bot! Here's how to use it:\n\n"
-        "1. Set Your Name: Use !setname followed by your desired name.\n"
-        "   Example: !setname BraveKnight\n\n"
-        "2. Perform an Action: Type > followed by an action to get a dramatic narration.\n"
-        "   Example: > swings sword at dragon\n\n"
-        "3. View Summary: Use !summary to see all players and their custom names.\n\n"
-        "4. Get Help: Use !help to see these instructions again.\n\n"
-        "Enjoy your adventure!"
-    )
-    await ctx.send(help_text)
+# Optional help command
+@bot.command(name='helpme')
+async def help_command(ctx):
+    await ctx.send("Here are some commands you can use:\n- !setname YourName\n- !summary\n- > [your action]")
 
-# Handle messages for actions and commands
+# Event handling for player actions
 @bot.event
 async def on_message(message):
     if message.author == bot.user:
         return
 
-    # Check for action trigger (>)
     if message.content.startswith('>'):
         player_action = message.content[1:].strip()
-        player_display_name = get_display_name(message.author)
+        display_name = get_display_name(message.author)
+        prompt = f"""
+        You are the host of a multiplayer story game set in {GAME_STATE['setting']}.
+        The player {display_name} performs the action: \"{player_action}\".
 
-        prompt = f"Player {player_display_name} performs action: {player_action}. Narrate dramatically (2-3 sentences)."
+        Continue the story in 2-3 sentences, using rich narration and natural consequences.
+        """
         response = await generate_story(prompt)
 
-        await message.channel.send(f"{player_display_name}'s action: {player_action}\n\n{response}")
+        GAME_STATE['events'].append({
+            'player': display_name,
+            'action': player_action,
+            'outcome': response
+        })
 
-    # Process commands like !setname, !help, !summary
+        await message.channel.send(f"**{display_name}'s action:** {player_action}\n\n{response}")
+
+    elif message.content.startswith('!summary'):
+        display_name = get_display_name(message.author)
+        recent = GAME_STATE['events'][-3:] if GAME_STATE['events'] else []
+        summary = "\n".join(
+            [f"- **{e['player']}** {e['action']}: {e['outcome']}" for e in recent]
+        ) or "No events yet."
+        await message.channel.send(f"**Recent Events for {display_name}:**\n{summary}")
+
     await bot.process_commands(message)
 
-# Start the bot
-bot.run(os.getenv('DISCORD_TOKEN'))
+bot.run(DISCORD_TOKEN)
